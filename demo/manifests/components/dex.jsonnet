@@ -5,6 +5,7 @@ local DEX_IMAGE = 'quay.io/dexidp/dex:v2.10.0';
 local DEX_HTTPS_PORT = 5556;
 local DEX_CONFIG_VOLUME_PATH = '/etc/dex/config';
 local DEX_CONFIG_PATH = DEX_CONFIG_VOLUME_PATH + '/config.yaml';
+local DEX_SECRET_VOLUME_PATH = '/etc/dex/tls';
 
 local dexAPIGroup = 'dex.coreos.com';
 local dexAPIVersion = 'v1';
@@ -17,20 +18,9 @@ local dexCRD(kind) = kube.CustomResourceDefinition('dex.coreos.com', 'v1beta1', 
 
 
 {
-  // Create a entry in the password DB
-  Password(name, email, hash):: kube._Object(dexAPIGroup + '/' + dexAPIVersion, 'Password', name) + {
-    metadata+: {
-      namespace: $.namespace,
-    },
-    email: email,
-    hash: hash,
-    username: name,
-  },
   p:: '',
 
-  namespace:: 'auth',
-
-  base_domain:: 'dex.example.net',
+  namespace:: 'dex',
 
   labels:: {
     metadata+: {
@@ -44,6 +34,63 @@ local dexCRD(kind) = kube.CustomResourceDefinition('dex.coreos.com', 'v1beta1', 
     metadata+: {
       namespace: $.namespace,
     },
+  },
+
+  base_domain:: 'dex.example.net',
+
+  oidc_client_secret:: {data: ''},
+
+  certificate: kube._Object('certmanager.k8s.io/v1alpha1', 'Certificate', 'dex') + $.metadata {
+    spec: {
+      acme: {
+        config: [{
+          domains: [
+            'dex.' + $.base_domain,
+          ],
+          http01: {
+            'ingressClass': 'contour',
+          }
+        }],
+      },
+
+      dnsNames: [
+        'dex.' + $.base_domain,
+      ],
+
+      issuerRef: {
+        kind: 'ClusterIssuer',
+        name: 'letsencrypt-prod',
+      },
+      secretName: 'dex-tls',
+    },
+  },
+
+  dexIngress: kube._Object('contour.heptio.com/v1beta1', 'IngressRoute', 'dex') + $.metadata {
+    spec+: {
+      virtualhost: {
+        fqdn: 'dex.' + $.base_domain,
+        tls: {
+          passthrough: true,
+          #secretName: 'contour-tls',
+        }
+      },
+      routes: [{
+        match: "/",
+        enableWebsockets: true,
+        services: [{
+          name: 'dex',
+          port: DEX_HTTPS_PORT,
+        }],
+      }],
+    },
+  },
+
+  // Create a entry in the password DB
+  Password(name, email, hash):: kube._Object(dexAPIGroup + '/' + dexAPIVersion, 'Password', name) + {
+    email: email,
+    hash: hash,
+    username: name,
+    metadata+: $.metadata,
   },
 
   serviceAccount: kube.ServiceAccount($.p + 'dex') + $.metadata {
@@ -106,6 +153,15 @@ local dexCRD(kind) = kube.CustomResourceDefinition('dex.coreos.com', 'v1beta1', 
           tlsKey: '/etc/dex/tls/tls.key',
         },
         enablePasswordDB: true,
+        staticClients:
+        [{
+          id: 'gangway',
+          redirectURIs: [
+            'https://gangway.' + $.base_domain + '/callback',
+          ],
+          name: 'Heptio Gangway',
+          secret: $.oidc_client_secret.data,
+         }],
       }, '  '),
     },
   },
@@ -125,6 +181,9 @@ local dexCRD(kind) = kube.CustomResourceDefinition('dex.coreos.com', 'v1beta1', 
           default_container: 'dex',
           volumes_+: {
             config: kube.ConfigMapVolume($.config),
+            secrets: {
+              secret: { secretName: 'dex-tls' },
+            },
           },
           securityContext: {
             fsGroup: 1001,
@@ -146,20 +205,10 @@ local dexCRD(kind) = kube.CustomResourceDefinition('dex.coreos.com', 'v1beta1', 
               },
               volumeMounts_+: {
                 config: { mountPath: DEX_CONFIG_VOLUME_PATH },
-              },
-              readinessProbe: {
-                httpGet: { path: '/_cluster/health?local=true', port: 'db' },
-                // don't allow rolling updates to kill containers until the cluster is green
-                // ...meaning it's not allocating replicas or relocating any shards
-                initialDelaySeconds: 120,
-                periodSeconds: 30,
-                failureThreshold: 4,
-                successThreshold: 2,  // Minimum consecutive successes for the probe to be considered successful after having failed.
-              },
-              livenessProbe: self.readinessProbe {
-                // elasticsearch_logging_discovery has a 5min timeout on cluster bootstrap
-                initialDelaySeconds: 5 * 60,
-                successThreshold: 1,  // Minimum consecutive successes for the probe to be considered successful after having failed.
+                secrets: {
+                  mountPath: DEX_SECRET_VOLUME_PATH,
+                  readOnly: true,
+                },
               },
             },
           },

@@ -22,8 +22,16 @@ terraform_destroy: ## Destroy terraform infrastructure
 manifests/config.json:
 	$(MAKE) terraform_apply
 
+manifests/gangway-key:
+	$(eval GANGWAY_KEY := $(shell openssl rand -base64 32))
+	echo "{data: '${GANGWAY_KEY}'}" > $@
+
+manifests/oidc-client-secret:
+	$(eval OIDC_CLIENT_SECRET := $(shell openssl rand -base64 32))
+	echo "{data: '${OIDC_CLIENT_SECRET}'}" > $@
+
 .PHONY: manifests_apply
-manifests_apply: manifests/config.json ## Use kubecfg to apply manifests into cluster
+manifests_apply: manifests/config.json manifests/gangway-key manifests/oidc-client-secret ## Use kubecfg to apply manifests into cluster
 	kubecfg show manifests/main.jsonnet | kubectl apply -f -
 
 .PHONY: manifests_validate

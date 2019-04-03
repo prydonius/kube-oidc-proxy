@@ -9,7 +9,10 @@ local gangway = import './components/gangway.jsonnet';
 
 local config = import './config.json';
 
-local base_domain = 'lab.christian-gcp.jetstack.net';
+local gangway_key = import './gangway-key';
+local oidc_client_secret = import './oidc-client-secret';
+
+local base_domain = 'josh-gcp.jetstack.net';
 local namespace = 'auth';
 
 {
@@ -27,13 +30,12 @@ local namespace = 'auth';
         namespace: 'kube-system',
       },
     },
-    letsencrypt_contact_email:: 'simon+letsencrypt@swine.de',
+    letsencrypt_contact_email:: 'joshua.vanleeuwen@jetstack.io',
     letsencrypt_environment:: 'prod',
 
     letsencryptStaging+: {
       spec+: {
         acme+: {
-          http01: null,
           dns01: {
             providers: [{
               name: 'clouddns',
@@ -98,6 +100,8 @@ local namespace = 'auth';
   namespace: kube.Namespace(namespace),
 
   contour: contour {
+    base_domain:: base_domain,
+
     metadata:: {
       metadata+: {
         namespace: namespace,
@@ -106,13 +110,9 @@ local namespace = 'auth';
   },
 
   dex: dex {
-    namespace:: namespace,
     base_domain:: base_domain,
-  },
-  dexPasswordChristian: dex.Password('christian', 'simon@swine.de', '$2y$10$i2.tSLkchjnpvnI73iSW/OPAVriV9BWbdfM6qemBM1buNRu81.ZG.'),  // plaintext: secure
-  dexIngress: {},
+    oidc_client_secret:: oidc_client_secret,
 
-  gangway: gangway {
     metadata:: {
       metadata+: {
         namespace: namespace,
@@ -120,4 +120,18 @@ local namespace = 'auth';
     },
   },
 
+  dexPasswordJosh: dex.Password('josh', 'joshua.vanleeuwen@jetstack.io', '$2y$10$i2.tSLkchjnpvnI73iSW/OPAVriV9BWbdfM6qemBM1buNRu81.ZG.'),  // plaintext: secure
+
+  gangway: gangway {
+    secret_key:: gangway_key,
+    oidc_client_secret:: oidc_client_secret,
+
+    base_domain:: base_domain,
+
+    metadata:: {
+      metadata+: {
+        namespace: namespace,
+      },
+    },
+  },
 }

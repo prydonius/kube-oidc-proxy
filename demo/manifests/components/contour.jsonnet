@@ -12,6 +12,8 @@ local ENVOY_IMAGE = 'docker.io/envoyproxy/envoy-alpine:v1.9.0';
 
   namespace:: 'contour',
 
+  base_domain:: 'example.com',
+
   labels:: {
     metadata+: {
       labels+: {
@@ -82,6 +84,7 @@ local ENVOY_IMAGE = 'docker.io/envoyproxy/envoy-alpine:v1.9.0';
               args: [
                 'serve',
                 '--incluster',
+                #'--use-proxy-protocol',
               ],
             },
             envoy: kube.Container('envoy') {
@@ -91,11 +94,11 @@ local ENVOY_IMAGE = 'docker.io/envoyproxy/envoy-alpine:v1.9.0';
                 '--config-path /config/contour.json',
                 '--service-cluster cluster0',
                 '--service-node node0',
-                '--log-level info',
-                '--v2-config-only',
+                '--log-level debug',
+                #'--v2-config-only',
               ],
               ports_+: {
-                http: { containerPort: 8080 },
+                #http: { containerPort: 8080 },
                 https: { containerPort: 8443 },
               },
               readinessProbe: {
@@ -124,15 +127,41 @@ local ENVOY_IMAGE = 'docker.io/envoyproxy/envoy-alpine:v1.9.0';
     metadata+: {
       annotations+: {
         'service.beta.kubernetes.io/aws-load-balancer-backend-protocol': 'tcp',
+        'contour.heptio.com/upstream-protocol.h2': '443,https',
       },
     },
     spec+: {
       type: 'LoadBalancer',
       selector: $.deployment.spec.template.metadata.labels,
       ports: [
-        { name: 'http', targetPort: 8080, port: 80 },
+        #{ name: 'http', targetPort: 8080, port: 80 },
         { name: 'https', targetPort: 8443, port: 443 },
       ],
+    },
+  },
+
+  certificate: kube._Object('certmanager.k8s.io/v1alpha1', 'Certificate', 'contour') + $.metadata{
+    spec: {
+      acme: {
+        config: [{
+          domains: [
+            $.base_domain,
+          ],
+          http01: {
+            'ingressClass': 'contour',
+          }
+        }],
+      },
+
+      dnsNames: [
+        $.base_domain,
+      ],
+
+      issuerRef: {
+        kind: 'ClusterIssuer',
+        name: 'letsencrypt-prod',
+      },
+      secretName: 'contour-tls',
     },
   },
 }

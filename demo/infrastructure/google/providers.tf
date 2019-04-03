@@ -7,7 +7,7 @@ variable "google_zone" {
 }
 
 variable "google_project" {
-  default = "jetstack-christian"
+  default = "jetstack-josh"
 }
 
 provider "google" {
