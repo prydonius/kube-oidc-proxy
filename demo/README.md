@@ -65,6 +65,13 @@ for both clusters. It should generate a JSON configuration file for both
 clusters in `./manifests/google-config.json` and `./manifests/amazon.json`
 respectively.
 
+If you wish to use a custom CA to sign certificates for the `kube-oidc-proxy`
+then this is possible by setting the environment variables `CA_CRT_FILE` and
+`CA_KEY_FILE` to the full file path of the CA certificate and private key
+respectively. After a terraform apply, these will be stored in the terraform
+state and will eventually be uploaded to Kubernetes as a Secret. Cert-manager
+will then issue the kube-oidc-proxy with a signed certificate from this CA.
+
 
 ## Configuration
 Copy `config.dist.jsonnet` to both `gke-config.jsonnet` and `eks-config.jsonnet`.

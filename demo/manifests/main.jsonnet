@@ -49,6 +49,25 @@ local only_master(obj) =
   else
     {};
 
+local apply_ca_issuer(ca_crt, ca_key, obj) =
+  if ca_crt != '' && ca_key != '' then
+    {
+      issuer: obj,
+      secret: kube.Secret(obj.spec.ca.secretName) + cert_manager.metadata {
+        metadata+: {
+          namespace: 'kube-system',
+        },
+
+        data_+: {
+          'tls.crt': ca_crt,
+          'tls.key': ca_key,
+        },
+      },
+    }
+  else
+    {};
+
+
 {
   config:: config,
 
@@ -64,6 +83,9 @@ local only_master(obj) =
 
   dex_domain:: $.dex.domain,
 
+  ca_crt:: $.config.cert_manager.ca_crt,
+  ca_key:: $.config.cert_manager.ca_key,
+
   cert_manager: cert_manager {
     google_secret: kube.Secret($.cert_manager.p + 'clouddns-google-credentials') + $.cert_manager.metadata {
       data_+: {
@@ -77,6 +99,15 @@ local only_master(obj) =
       },
     },
     letsencrypt_environment:: 'prod',
+
+    ca_issuer: apply_ca_issuer($.ca_crt, $.ca_key, $.cert_manager.ClusterIssuer($.p + 'ca-issuer') {
+      local this = self,
+      spec+: {
+        ca+: {
+          secretName: $.cert_manager.ca_secret_name,
+        },
+      },
+    }),
 
     letsencryptStaging+: {
       spec+: {
@@ -298,7 +329,7 @@ local only_master(obj) =
     certificate: cert_manager.Certificate(
       $.namespace,
       this.name,
-      $.cert_manager.letsencryptProd,
+      if $.ca_crt != '' && $.ca_key != '' then $.cert_manager.ca_issuer.issuer else $.cert_manager.letsencryptProd,
       [this.domain]
     ),
     ingressRoute: IngressRouteTLSPassthrough($.namespace, this.name, this.domain, this.name, 443),
